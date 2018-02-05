@@ -1,10 +1,29 @@
 #! /usr/bin/env ruby
 
 require 'optparse'
+require 'pathname'
+require "open3"
+
+def build_grep_opts(options)
+  options.map do |key, value|
+    key = key.to_s
+    if %w(A B).include? key
+      "-#{key} #{value}"
+    elsif %w(E F G B c h i l n s w x r).include? key
+      "-#{key}"
+    elsif %w(e f).include? key
+      "-#{key} #{value}"
+    elsif %w(target).include? key
+      value
+    end
+  end.join(" ")
+end
 
 options = {}
 OptionParser.new do |opt|
-  opt.on('-d', '--dir=dir,dir,...', Array, '検索するディレクトリを指定します'){|v| options[:dir] = v}
+  opt.on('-d', '--dir=dir,dir,...', Array, '検索するディレクトリを指定します') do |dirs|
+    options[:dir] = dirs.map {|dir| Pathname.new(dir).expand_path}
+  end
 
   opt.on('-A num', '\A[1-9][0-9]*\z', 'マッチした行から後num行を同時に検索結果として表示する'){|v| options[:A] = v}
   opt.on('-B num', '\A[1-9][0-9]*\z', 'マッチした行から前num行を同時に検索結果として表示する'){|v| options[:B] = v}
@@ -24,13 +43,34 @@ OptionParser.new do |opt|
   opt.on('-q', '検索結果を表示しない'){|v| options[:q] = v}
   #-sのエラーを表示しないための実装をどうするか
   opt.on('-s', 'エラー・メッセージを表示しない'){|v| options[:s] = v}
-  opt.on('-v', 'マッチしない行を検索結果として表示する'){|v| options[:v] = v}
+  opt.on('-v array', Array, 'マッチしない行を検索結果として表示する'){|v| options[:v] = v}
   opt.on('-w', 'パターン・マッチを，単語全体で行うようにする'){|v| options[:w] = v}
   opt.on('-x', '行全体を検索対象にする'){|v| options[:x] = v}
-  opt.on('-r', '検索結果のディレクトリ構造を表示する')
+  opt.on('-r', '検索結果のディレクトリ構造を表示する'){|v| options[:r] = v}
   opt.on(/\-\d+/, 'test'){|v| options[:num] = v}
 
   opt.parse!(ARGV)
 end
-puts options
+
+dirs = options.delete :dir if options.has_key? :dir
+
+if ARGV.count == 1
+  options.merge! target: ARGV.first
+end
+
+file_paths = dirs.map do |dir|
+  cmd = "grep #{build_grep_opts(options)} -l #{dir}/*"
+  if options[:v].any?
+    options[:v].each do |except|
+      cmd += " | grep -v #{except}"
+    end
+  end
+  puts cmd
+
+  output, error, status = Open3.capture3(cmd)
+  output.gsub("\n", " ")
+end.join(" ")
+
+
+`code -n #{file_paths}`
 
